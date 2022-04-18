@@ -1,0 +1,186 @@
+--1. What is the total amount each customer spent at the restaurant?
+select customer_id, sum(price) as total_amount
+from (
+      select s.customer_id, m.price
+	  from dannys_diner.sales s
+      left join dannys_diner.menu m
+      on s.product_id = m.product_id) sm
+group by customer_id
+order by customer_id asc;
+
+--2. How many days has each customer visited the restaurant?
+select customer_id, count(distinct order_date) as total_visit
+from dannys_diner.sales
+group by customer_id
+order by customer_id asc;
+
+--3. What was the first item from the menu purchased by each customer?
+select customer_id, product_name
+from(
+		select s.customer_id, s.order_date, m.product_name,
+        dense_rank() over(partition by s.customer_id
+						  order by s.order_date) as rank
+		from dannys_diner.sales s
+		left join dannys_diner.menu m
+		on s.product_id = m.product_id) slmn
+where rank = 1
+group by customer_id, product_name;
+
+--4. What is the most purchased item on the menu and how many times was it purchased by all customers?
+select m.product_name, count(s.product_id) as total_purchased
+from dannys_diner.sales s
+left join dannys_diner.menu m
+on s.product_id = m.product_id
+group by m.product_name
+order by total_purchased desc
+limit 1;
+		
+--5. Which item was the most popular for each customer?
+select customer_id, product_name as most_purchased, total_product as total_purchased
+from(
+	select s.customer_id, m.product_name, count(m.product_name) as total_product,
+	dense_rank() over(partition by customer_id
+						 order by count(m.product_name) desc) as rank
+	from dannys_diner.sales s
+	left join dannys_diner.menu m
+	on s.product_id = m.product_id
+	group by s.customer_id,m.product_name
+	order by s.customer_id, count(m.product_name) ASC) sm
+where rank = 1;
+
+--6. Which item was purchased first by the customer after they became a member?
+select customer_id, order_date, product_name
+from(select customer_id, order_date, product_name,
+	 dense_rank() over( partition by customer_id
+						  order by order_date asc) as order_rank
+	 from(select vta.customer_id, vta.order_date, vta.join_date, mn.product_name						  
+	 	  from(select s.customer_id, s.order_date, m.join_date, s.product_id
+	 	  	   from dannys_diner.sales s
+	 	  	   inner join dannys_diner.members m
+	 	  	   on s.customer_id = m.customer_id) vta
+	 	  left join dannys_diner.menu mn
+	 	  on vta.product_id = mn.product_id
+	 	  where order_date >= join_date
+	 	  order by customer_id asc) vtb ) vtc
+where order_rank = 1;
+
+--7. Which item was purchased just before the customer became a member?
+select customer_id, order_date, product_name
+from(select customer_id, order_date, join_date, product_name,
+	 dense_rank() over( partition by customer_id
+						  order by order_date desc) as order_rank
+	 from(select vta.customer_id, vta.order_date, vta.join_date, mn.product_name						  
+	 	  from(select s.customer_id, s.order_date, m.join_date, s.product_id
+	 	  	   from dannys_diner.sales s
+	 	  	   inner join dannys_diner.members m
+	 	  	   on s.customer_id = m.customer_id) vta
+	 	  left join dannys_diner.menu mn
+	 	  on vta.product_id = mn.product_id
+	 	  where order_date < join_date
+	 	  order by customer_id asc) vtb ) vtc
+where order_rank = 1;
+
+--8. What is the total items and amount spent for each member before they became a member?
+select vtd.customer_id, count(vtd.product_name) as total_item,sum(mnu.price) as amount_spent
+from (select customer_id, order_date, product_name
+	  from(select customer_id, order_date, join_date, product_name,
+	 	   dense_rank() over( partition by customer_id
+						  	  order by order_date desc) as order_rank
+	 	   from(select vta.customer_id, vta.order_date, vta.join_date, mn.product_name						  
+	 	  	    from(select s.customer_id, s.order_date, m.join_date, s.product_id
+	 	  	         from dannys_diner.sales s
+	 	  	         inner join dannys_diner.members m
+	 	  	         on s.customer_id = m.customer_id) vta
+	 	        left join dannys_diner.menu mn
+	 	        on vta.product_id = mn.product_id
+	 	        where order_date < join_date
+	 	        order by customer_id asc) vtb ) vtc
+           where order_rank = 1) vtd
+left join dannys_diner.menu mnu
+on vtd.product_name = mnu.product_name
+group by vtd.customer_id;
+
+--9. If each $1 spent equates to 10 points and sushi has a 2x points multiplier - how many points would each customer have?
+select customer_id, sum(points) as total_points
+from(select customer_id, product_name, sum(price) as total_price,
+	   		case when product_name = 'sushi' then sum(price*20) 
+	   		else sum(price*10) 
+	   		end as points
+	from(select s.customer_id, m.product_name, m.price
+	 	 from dannys_diner.sales s
+	 	 left join dannys_diner.menu m
+	 	 on s.product_id = m.product_id) vta
+	group by customer_id, product_name) vtb
+group by customer_id
+order by customer_id asc;
+
+--10. In the first week after a customer joins the program (including their join date) they earn 2x points on all items, 
+--    not just sushi - how many points do customer A and B have at the end of January?
+select customer_id, sum(points) as total_points
+from(select customer_id, category, product_name,
+       case when category = 'before' and product_name = 'sushi' then price*20
+	        when category = 'before' and product_name <> 'sushi' then price*10
+			when category = '1st week' then price*20
+			when category = 'after 1st week' and product_name = 'sushi' then price*20
+			else price*20
+	   end as points
+	 from(select vtb.customer_id, vtb.category, vtb.product_id, m.price, m.product_name
+		  from(select customer_id, order_date, join_date, 
+       	 			  case when order_date < join_date then 'before'
+	          			   when order_date >= join_date and order_date <= (join_date + INTERVAL '6 DAY') then '1st week'
+			   			   else 'after 1st week'
+		  			  end as category,
+			     			 product_id
+	 	  	   from(select s.customer_id, s.order_date, m.join_date, s.product_id
+	 	  	   		from dannys_diner.sales s
+	 	 	   		inner join dannys_diner.members m
+	 	       		on s.customer_id = m.customer_id
+			   		where s.order_date <= (date_trunc('month', to_timestamp('01 Jan 2021', 'DD Mon YYYY')) + interval '1 month - 1 day')) vta)vtb
+		  	   left join dannys_diner.menu m
+	      	   on vtb.product_id = m.product_id) vtc) vtd
+group by customer_id;
+
+----------------------------- Bonus Questions-----------------------------
+
+-- Join All the Things
+-- The following questions are related creating basic data tables that 
+-- Danny and his team can use to quickly derive insights without needing
+-- to join the underlying tables using SQL.
+
+select customer_id, order_date, product_name, price, 
+	   case when join_date isnull then 'N'
+	        when order_date < join_date then 'N'
+	        else 'Y'
+	   end as member
+from(select s.customer_id, s.order_date, mn.product_name, mn.price, me.join_date
+	 from dannys_diner.sales s
+	 left join dannys_diner.menu mn
+	 on s.product_id = mn.product_id
+	 left join dannys_diner.members me
+	 on s.customer_id = me.customer_id) vta
+order by customer_id, order_date, product_name asc;
+	 
+-- Rank All The Things
+-- Danny also requires further information about the ranking of customer products,
+-- but he purposely does not need the ranking for non-member purchases so he expects 
+-- null ranking values for the records when customers are not yet part of the loyalty program.
+
+select *,
+		 case when member = 'Y' then rank() over(partition by customer_id, member
+						                               order by order_date asc) 
+		      else NULL
+		 end as ranking
+from(select customer_id, order_date, product_name, price, 
+	   		case when join_date isnull then 'N'
+	        	 when order_date < join_date then 'N'
+	        	 else 'Y'
+	   	 	end as member
+	 from(select s.customer_id, s.order_date, mn.product_name, mn.price, me.join_date
+	 	  from dannys_diner.sales s
+	 	  left join dannys_diner.menu mn
+		  on s.product_id = mn.product_id
+	 	  left join dannys_diner.members me
+	 	  on s.customer_id = me.customer_id) vta
+	      order by customer_id, order_date, product_name asc) vtb;
+
+
