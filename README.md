@@ -38,7 +38,7 @@ Danny also requires further information about the ranking of customer products, 
 
 ## Solution:
 
-You can find the complete SQL queries here.
+**You can find the complete SQL queries [here](https://github.com/alkindykevin/Case-Study-1---Danny-s-Diner/blob/main/SQL_Chal_1).**
 
 
 
